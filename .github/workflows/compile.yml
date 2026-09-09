@@ -125,18 +125,14 @@ jobs:
           mkdir -p out
           make O=out "$DEFCONFIG_NAME"
 
-          cat <<EOT >> out/.config
-          CONFIG_KPROBES=y
-          CONFIG_HAVE_KPROBES=y
-          CONFIG_KPROBE_EVENTS=y
-          CONFIG_KALLSYMS=y
-          CONFIG_KALLSYMS_ALL=y
-          CONFIG_OVERLAY_FS=y
-          CONFIG_KSU=y
-          EOT
+          # Activar KernelSU de forma limpia usando el script oficial del kernel
+          scripts/config --file out/.config --enable CONFIG_KSU
+          scripts/config --file out/.config --enable CONFIG_KPROBES
+          scripts/config --file out/.config --enable CONFIG_HAVE_KPROBES
+          scripts/config --file out/.config --enable CONFIG_KPROBE_EVENTS
+          scripts/config --file out/.config --enable CONFIG_OVERLAY_FS
 
           make O=out olddefconfig
-          echo "CONFIG_KSU=y" >> out/.config
 
           make -j$(nproc --all) O=out CC=clang CLANG_TRIPLE=aarch64-linux-gnu- KCFLAGS="-Wno-error -Wno-implicit-function-declaration -DCONFIG_KSU=1"
 
@@ -149,8 +145,19 @@ jobs:
           cp "$IMAGE" AnyKernel3/
           cd AnyKernel3
 
+          # Configurar dispositivos compatibles
           sed -i 's/device.name1=.*/device.name1=pine/' anykernel.sh
           sed -i 's/device.name2=.*/device.name2=redmi7a/' anykernel.sh
+
+          # Inyectar la ruta física directa del SOC Snapdragon 439
+          sed -i 's|block=/dev/block/by-name/boot;|block=/dev/block/platform/soc/7824900.sdhci/by-name/boot;|' anykernel.sh
+
+          # Desactivar montajes de system y vendor bloqueados en Android 12
+          sed -i 's|mount -o rw /system|# mount -o rw /system|' anykernel.sh
+          sed -i 's|mount -o rw /vendor|# mount -o rw /vendor|' anykernel.sh
+
+          # Añadir la orden para flashear el DTBO
+          sed -i '/flash_boot;/a flash_dtbo;' anykernel.sh
 
           zip -r9 ../LolzKernel-4.9-KernelSU-Pine.zip * -x .git README.md *placeholder
 
