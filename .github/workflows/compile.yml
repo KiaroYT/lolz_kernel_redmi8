@@ -37,31 +37,20 @@ jobs:
         run: |
           git clone --depth=1 https://github.com/kdrag0n/proton-clang.git $HOME/proton-clang
 
-      - name: Inyectar KernelSU v0.9.5, Parchear Drivers y Configurar Defconfig
+      - name: Inyectar KernelSU v0.9.5 y Parchear Drivers
         run: |
           # 1. Inyectar KernelSU v0.9.5
           curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s v0.9.5
 
-          # 2. Parchear error de MACH_FAMILY_OLIVE en el driver de regulador para Redmi 7A (pine)
+          # 2. Forzar compilación del módulo KernelSU en el Makefile principal de drivers
+          if ! grep -q "kernelsu" drivers/Makefile; then
+            echo "obj-y += kernelsu/" >> drivers/Makefile
+          fi
+
+          # 3. Parchear error de MACH_FAMILY_OLIVE en el driver de regulador para Redmi 7A (pine)
           if [ -f "drivers/regulator/qpnp-lcdb-regulator.c" ]; then
             sed -i 's/if (mi439_mach_get_family() == MACH_FAMILY_OLIVE)/if (0)/g' drivers/regulator/qpnp-lcdb-regulator.c
           fi
-
-          # 3. Localizar el defconfig de pine / lolz
-          DEFCONFIG_FILE=$(find arch/arm64/configs -name "*pine*" -o -name "*lolz*" | head -n 1)
-          if [ -z "$DEFCONFIG_FILE" ]; then
-            DEFCONFIG_FILE="arch/arm64/configs/pine_defconfig"
-          fi
-          echo "Defconfig localizado en: $DEFCONFIG_FILE"
-
-          # 4. Habilitar Kprobes, Kallsyms, OverlayFS y KernelSU
-          echo "CONFIG_KPROBES=y" >> "$DEFCONFIG_FILE"
-          echo "CONFIG_HAVE_KPROBES=y" >> "$DEFCONFIG_FILE"
-          echo "CONFIG_KPROBE_EVENTS=y" >> "$DEFCONFIG_FILE"
-          echo "CONFIG_KALLSYMS=y" >> "$DEFCONFIG_FILE"
-          echo "CONFIG_KALLSYMS_ALL=y" >> "$DEFCONFIG_FILE"
-          echo "CONFIG_OVERLAY_FS=y" >> "$DEFCONFIG_FILE"
-          echo "CONFIG_KSU=y" >> "$DEFCONFIG_FILE"
 
       - name: Compilar Kernel
         run: |
@@ -77,6 +66,17 @@ jobs:
 
           mkdir -p out
           make O=out "$DEFCONFIG_NAME"
+
+          # Inyectar directamente en out/.config para asegurar su inclusión
+          echo "CONFIG_KPROBES=y" >> out/.config
+          echo "CONFIG_HAVE_KPROBES=y" >> out/.config
+          echo "CONFIG_KPROBE_EVENTS=y" >> out/.config
+          echo "CONFIG_KALLSYMS=y" >> out/.config
+          echo "CONFIG_KALLSYMS_ALL=y" >> out/.config
+          echo "CONFIG_OVERLAY_FS=y" >> out/.config
+          echo "CONFIG_KSU=y" >> out/.config
+
+          make O=out olddefconfig
           make -j$(nproc --all) O=out CC=clang CLANG_TRIPLE=aarch64-linux-gnu- KCFLAGS="-Wno-error -Wno-implicit-function-declaration"
 
       - name: Empaquetar con AnyKernel3
