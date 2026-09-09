@@ -1,6 +1,7 @@
 name: Compilar Lolz Kernel 4.9 con KernelSU (Hooks Manuales)
 
 on:
+  push:
   workflow_dispatch:
 
 jobs:
