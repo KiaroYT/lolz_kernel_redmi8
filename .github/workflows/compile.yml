@@ -37,35 +37,64 @@ jobs:
         run: |
           git clone --depth=1 https://github.com/kdrag0n/proton-clang.git $HOME/proton-clang
 
-      - name: Inyectar y Enlazar KernelSU v0.9.5
+      - name: Inyectar KernelSU v0.9.5 y Puentes de Compatibilidad
         run: |
           # 1. Inyectar KernelSU v0.9.5
           curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s v0.9.5
 
-          # 2. Vincular Kconfig para que olddefconfig no borre CONFIG_KSU
+          # 2. Crear archivo de compatibilidad para los ganchos manuales del kernel
+          cat <<'EOF' > drivers/kernelsu/ksu_compat.c
+          #include <linux/types.h>
+
+          extern int ksu_handle_execveat(int *fd, void *filename_ptr, void *argv, void *envp, int *flags);
+          extern int ksu_handle_vfs_read(void *file_ptr, void *buf_ptr, void *count_ptr, void *pos_ptr);
+          extern int ksu_handle_input_handle_event(unsigned int *type, unsigned int *code, int *value);
+          extern int ksu_handle_faccessat(int *dfd, void *filename_user, int *mode, int *flags);
+          extern int ksu_handle_stat(int *dfd, void *filename_user, int *flags);
+
+          int __attribute__((weak)) ksu_execveat_hook(int *fd, void *filename_ptr, void *argv, void *envp, int *flags) {
+              return ksu_handle_execveat ? ksu_handle_execveat(fd, filename_ptr, argv, envp, flags) : 0;
+          }
+
+          int __attribute__((weak)) ksu_vfs_read_hook(void *file_ptr, void *buf_ptr, void *count_ptr, void *pos_ptr) {
+              return ksu_handle_vfs_read ? ksu_handle_vfs_read(file_ptr, buf_ptr, count_ptr, pos_ptr) : 0;
+          }
+
+          int __attribute__((weak)) ksu_input_hook(unsigned int *type, unsigned int *code, int *value) {
+              return ksu_handle_input_handle_event ? ksu_handle_input_handle_event(type, code, value) : 0;
+          }
+
+          int __attribute__((weak)) ksu_faccessat_hook(int *dfd, void *filename_user, int *mode, int *flags) {
+              return ksu_handle_faccessat ? ksu_handle_faccessat(dfd, filename_user, mode, flags) : 0;
+          }
+
+          int __attribute__((weak)) ksu_stat_hook(int *dfd, void *filename_user, int *flags) {
+              return ksu_handle_stat ? ksu_handle_stat(dfd, filename_user, flags) : 0;
+          }
+          EOF
+
+          # 3. Registrar ksu_compat.o en el sistema de compilacion
+          echo "obj-y += ksu_compat.o" >> drivers/kernelsu/Kbuild
+          echo "obj-y += ksu_compat.o" >> drivers/kernelsu/Makefile
+
+          # 4. Enlazar Kconfig y drivers/Makefile
           if ! grep -q "kernelsu" drivers/Kconfig; then
             echo 'source "drivers/kernelsu/Kconfig"' >> drivers/Kconfig
           fi
 
-          # 3. Vincular Makefile principal
-          if ! grep -q "kernelsu" drivers/Makefile; then
-            echo 'obj-y += kernelsu/' >> drivers/Makefile
-          fi
+          sed -i '/kernelsu/d' drivers/Makefile
+          echo "obj-y += kernelsu/" >> drivers/Makefile
 
-          # 4. Forzar a Kbuild/Makefile de KernelSU a compilar obligatoriamente
-          if [ -f "drivers/kernelsu/Kbuild" ]; then
-            sed -i 's/obj-\$(CONFIG_KSU)/obj-y/g' drivers/kernelsu/Kbuild
-          fi
-          if [ -f "drivers/kernelsu/Makefile" ]; then
-            sed -i 's/obj-\$(CONFIG_KSU)/obj-y/g' drivers/kernelsu/Makefile
-          fi
+          # 5. Forzar compilacion obligatoria
+          sed -i 's/obj-\$(CONFIG_KSU)/obj-y/g' drivers/kernelsu/Kbuild 2>/dev/null || true
+          sed -i 's/obj-\$(CONFIG_KSU)/obj-y/g' drivers/kernelsu/Makefile 2>/dev/null || true
 
-          # 5. Parchear error de MACH_FAMILY_OLIVE en regulador de pantalla
+          # 6. Parchear error de MACH_FAMILY_OLIVE en regulador de pantalla
           if [ -f "drivers/regulator/qpnp-lcdb-regulator.c" ]; then
             sed -i 's/if (mi439_mach_get_family() == MACH_FAMILY_OLIVE)/if (0)/g' drivers/regulator/qpnp-lcdb-regulator.c
           fi
 
-          # 6. Escribir configuraciones de KernelSU en el defconfig del dispositivo
+          # 7. Inyectar configuraciones en defconfig
           DEFCONFIG_FILE=$(find arch/arm64/configs -name "*pine*" -o -name "*lolz*" | head -n 1)
           if [ -z "$DEFCONFIG_FILE" ]; then
             DEFCONFIG_FILE="arch/arm64/configs/pine_defconfig"
@@ -95,7 +124,20 @@ jobs:
 
           mkdir -p out
           make O=out "$DEFCONFIG_NAME"
+
+          cat <<EOT >> out/.config
+          CONFIG_KPROBES=y
+          CONFIG_HAVE_KPROBES=y
+          CONFIG_KPROBE_EVENTS=y
+          CONFIG_KALLSYMS=y
+          CONFIG_KALLSYMS_ALL=y
+          CONFIG_OVERLAY_FS=y
+          CONFIG_KSU=y
+          EOT
+
           make O=out olddefconfig
+          echo "CONFIG_KSU=y" >> out/.config
+
           make -j$(nproc --all) O=out CC=clang CLANG_TRIPLE=aarch64-linux-gnu- KCFLAGS="-Wno-error -Wno-implicit-function-declaration -DCONFIG_KSU=1"
 
       - name: Empaquetar con AnyKernel3
