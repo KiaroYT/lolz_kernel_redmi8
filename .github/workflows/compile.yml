@@ -37,24 +37,27 @@ jobs:
         run: |
           git clone --depth=1 https://github.com/kdrag0n/proton-clang.git $HOME/proton-clang
 
-      - name: Inyectar KernelSU v0.9.5 y Forzar Compilación Directa
+      - name: Inyectar KernelSU v0.9.5 y Forzar Compilacion en Kbuild
         run: |
           # 1. Inyectar KernelSU v0.9.5
           curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s v0.9.5
 
-          # 2. Forzar a Kbuild a compilar drivers/kernelsu de forma obligatoria
+          # 2. Registrar KernelSU en Kconfig y Makefile general
+          grep -q "kernelsu" drivers/Kconfig || sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
+          grep -q "kernelsu" drivers/Makefile || echo "obj-y += kernelsu/" >> drivers/Makefile
+
+          # 3. FORZAR Kbuild (KernelSU usa Kbuild, que anula a Makefile)
           if [ -d "drivers/kernelsu" ]; then
-            sed -i 's/CONFIG_KSU/y/g' drivers/kernelsu/Makefile 2>/dev/null || true
+            sed -i 's/obj-\$(CONFIG_KSU)/obj-y/g' drivers/kernelsu/Kbuild 2>/dev/null || true
             sed -i 's/obj-\$(CONFIG_KSU)/obj-y/g' drivers/kernelsu/Makefile 2>/dev/null || true
-            grep -q "kernelsu" drivers/Makefile || echo "obj-y += kernelsu/" >> drivers/Makefile
           fi
 
-          # 3. Parchear error de MACH_FAMILY_OLIVE en regulador de pantalla
+          # 4. Parchear error de MACH_FAMILY_OLIVE en regulador de pantalla
           if [ -f "drivers/regulator/qpnp-lcdb-regulator.c" ]; then
             sed -i 's/if (mi439_mach_get_family() == MACH_FAMILY_OLIVE)/if (0)/g' drivers/regulator/qpnp-lcdb-regulator.c
           fi
 
-          # 4. Inyectar banderas en defconfig
+          # 5. Inyectar configuraciones obligatorias en defconfig
           DEFCONFIG_FILE=$(find arch/arm64/configs -name "*pine*" -o -name "*lolz*" | head -n 1)
           if [ -z "$DEFCONFIG_FILE" ]; then
             DEFCONFIG_FILE="arch/arm64/configs/pine_defconfig"
