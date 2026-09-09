@@ -150,21 +150,21 @@ jobs:
 
           cd AnyKernel3
 
-          # Desactivar chequeo estricto de dispositivo (evita Error 7 en LineageOS/ROMs AOSP)
+          # Desactivar chequeo estricto de dispositivo
           sed -i 's/do.devicecheck=1/do.devicecheck=0/' anykernel.sh
 
           # Configurar dispositivos compatibles
           sed -i 's/device.name1=.*/device.name1=pine/' anykernel.sh
           sed -i 's/device.name2=.*/device.name2=redmi7a/' anykernel.sh
 
-          # Inyectar la ruta física directa de la partición boot (Snapdragon 439 - 7824900.sdhci)
-          sed -i -E 's|^(BLOCK|block)=.*|\1=/dev/block/platform/soc/7824900.sdhci/by-name/boot;|g' anykernel.sh
+          # Inyectar la ruta física directa del SOC (usando # para evitar colisión de separadores)
+          sed -i -E 's#^(BLOCK|block)=.*#\1=/dev/block/platform/soc/7824900.sdhci/by-name/boot;#g' anykernel.sh
 
-          # Desactivar re-montajes obsoletos en Android 12
+          # Desactivar re-montajes en Android 12
           sed -i 's|mount -o rw /system|# mount -o rw /system|' anykernel.sh
           sed -i 's|mount -o rw /vendor|# mount -o rw /vendor|' anykernel.sh
 
-          # Flashear DTBO solo si el archivo existe físicamente en el ZIP
+          # Flashear DTBO solo si existe físicamente
           if [ -f "dtbo.img" ]; then
             sed -i '/flash_boot;/a flash_dtbo;' anykernel.sh
           fi
