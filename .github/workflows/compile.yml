@@ -37,19 +37,24 @@ jobs:
         run: |
           git clone --depth=1 https://github.com/kdrag0n/proton-clang.git $HOME/proton-clang
 
-      - name: Inyectar KernelSU v0.9.5 y Configurar Defconfig
+      - name: Inyectar KernelSU v0.9.5, Parchear Drivers y Configurar Defconfig
         run: |
-          # 1. Inyectar KernelSU en la versión estable v0.9.5
+          # 1. Inyectar KernelSU v0.9.5
           curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s v0.9.5
 
-          # 2. Localizar el defconfig de pine / lolz
+          # 2. Parchear error de MACH_FAMILY_OLIVE en el driver de regulador para Redmi 7A (pine)
+          if [ -f "drivers/regulator/qpnp-lcdb-regulator.c" ]; then
+            sed -i 's/if (mi439_mach_get_family() == MACH_FAMILY_OLIVE)/if (0)/g' drivers/regulator/qpnp-lcdb-regulator.c
+          fi
+
+          # 3. Localizar el defconfig de pine / lolz
           DEFCONFIG_FILE=$(find arch/arm64/configs -name "*pine*" -o -name "*lolz*" | head -n 1)
           if [ -z "$DEFCONFIG_FILE" ]; then
             DEFCONFIG_FILE="arch/arm64/configs/pine_defconfig"
           fi
           echo "Defconfig localizado en: $DEFCONFIG_FILE"
 
-          # 3. Habilitar Kprobes, Kallsyms, OverlayFS y KernelSU
+          # 4. Habilitar Kprobes, Kallsyms, OverlayFS y KernelSU
           echo "CONFIG_KPROBES=y" >> "$DEFCONFIG_FILE"
           echo "CONFIG_HAVE_KPROBES=y" >> "$DEFCONFIG_FILE"
           echo "CONFIG_KPROBE_EVENTS=y" >> "$DEFCONFIG_FILE"
