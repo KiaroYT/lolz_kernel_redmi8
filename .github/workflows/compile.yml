@@ -37,13 +37,14 @@ jobs:
         run: |
           git clone --depth=1 https://github.com/kdrag0n/proton-clang.git $HOME/proton-clang
 
-      - name: Inyectar KernelSU v0.9.5 y Parchear Drivers
+      - name: Inyectar KernelSU v0.9.5 y Forzar Compilación
         run: |
           # 1. Inyectar KernelSU v0.9.5
           curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s v0.9.5
 
-          # 2. Forzar compilación del módulo KernelSU en el Makefile principal de drivers
-          if ! grep -q "kernelsu" drivers/Makefile; then
+          # 2. Forzar compilación incondicional de los módulos de KernelSU
+          if [ -d "drivers/kernelsu" ]; then
+            sed -i 's/obj-$(CONFIG_KSU)/obj-y/g' drivers/kernelsu/Makefile 2>/dev/null || true
             echo "obj-y += kernelsu/" >> drivers/Makefile
           fi
 
@@ -67,7 +68,7 @@ jobs:
           mkdir -p out
           make O=out "$DEFCONFIG_NAME"
 
-          # Inyectar directamente en out/.config para asegurar su inclusión
+          # Inyectar variables de KernelSU y Kprobes en out/.config
           echo "CONFIG_KPROBES=y" >> out/.config
           echo "CONFIG_HAVE_KPROBES=y" >> out/.config
           echo "CONFIG_KPROBE_EVENTS=y" >> out/.config
