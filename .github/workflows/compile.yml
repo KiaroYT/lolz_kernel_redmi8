@@ -46,7 +46,7 @@ jobs:
           cat <<'EOF' > drivers/ksu_bridge.c
           #include <linux/types.h>
 
-          // Definiciones débiles (weak) para que el enlazador siempre encuentre los símbolos
+          // Definiciones débiles (weak) para evitar errores de enlazado si faltan símbolos
           int __attribute__((weak)) ksu_handle_execveat(int *fd, void *filename_ptr, void *argv, void *envp, int *flags) { return 0; }
           int __attribute__((weak)) ksu_handle_vfs_read(void *file_ptr, void *buf_ptr, void *count_ptr, void *pos_ptr) { return 0; }
           int __attribute__((weak)) ksu_handle_faccessat(int *dfd, void *filename_user, int *mode, int *flags) { return 0; }
@@ -71,7 +71,7 @@ jobs:
           }
           EOF
 
-          # 3. Registrar ksu_bridge.o y la carpeta kernelsu/ directamente en drivers/Makefile
+          # 3. Registrar ksu_bridge.o y kernelsu/ directamente en drivers/Makefile
           echo "obj-y += ksu_bridge.o" >> drivers/Makefile
           sed -i '/kernelsu/d' drivers/Makefile
           echo "obj-y += kernelsu/" >> drivers/Makefile
@@ -80,7 +80,7 @@ jobs:
             sed -i 's/obj-\$(CONFIG_KSU)/obj-y/g' drivers/kernelsu/Kbuild 2>/dev/null || true
             sed -i 's/obj-\$(CONFIG_KSU)/obj-y/g' drivers/kernelsu/Makefile 2>/dev/null || true
             
-            # Forzar la activación de la macro CONFIG_KSU en el código fuente de KernelSU
+            # Forzar activación de la macro CONFIG_KSU en cabeceras y fuentes
             find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i '1s/^/#ifndef CONFIG_KSU\n#define CONFIG_KSU 1\n#endif\n/' {} +
           fi
 
@@ -125,7 +125,7 @@ jobs:
           mkdir -p out
           make O=out "$DEFCONFIG_NAME"
 
-          # Activar KernelSU de forma limpia usando el script oficial del kernel
+          # Activar opciones requeridas en el .config final
           scripts/config --file out/.config --enable CONFIG_KSU
           scripts/config --file out/.config --enable CONFIG_KPROBES
           scripts/config --file out/.config --enable CONFIG_HAVE_KPROBES
@@ -141,23 +141,33 @@ jobs:
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
 
           IMAGE=$(find out/arch/arm64/boot/ -name "Image.gz-dtb" -o -name "Image.gz" | head -n 1)
-
           cp "$IMAGE" AnyKernel3/
+
+          DTBO=$(find out/arch/arm64/boot/ -name "dtbo.img" | head -n 1)
+          if [ -n "$DTBO" ] && [ -f "$DTBO" ]; then
+            cp "$DTBO" AnyKernel3/
+          fi
+
           cd AnyKernel3
+
+          # Desactivar chequeo estricto de dispositivo (evita Error 7 en LineageOS/ROMs AOSP)
+          sed -i 's/do.devicecheck=1/do.devicecheck=0/' anykernel.sh
 
           # Configurar dispositivos compatibles
           sed -i 's/device.name1=.*/device.name1=pine/' anykernel.sh
           sed -i 's/device.name2=.*/device.name2=redmi7a/' anykernel.sh
 
-          # Inyectar la ruta física directa del SOC Snapdragon 439
-          sed -i 's|block=/dev/block/by-name/boot;|block=/dev/block/platform/soc/7824900.sdhci/by-name/boot;|' anykernel.sh
+          # Inyectar la ruta física directa de la partición boot (Snapdragon 439 - 7824900.sdhci)
+          sed -i -E 's|^(BLOCK|block)=.*|\1=/dev/block/platform/soc/7824900.sdhci/by-name/boot;|g' anykernel.sh
 
-          # Desactivar montajes de system y vendor bloqueados en Android 12
+          # Desactivar re-montajes obsoletos en Android 12
           sed -i 's|mount -o rw /system|# mount -o rw /system|' anykernel.sh
           sed -i 's|mount -o rw /vendor|# mount -o rw /vendor|' anykernel.sh
 
-          # Añadir la orden para flashear el DTBO
-          sed -i '/flash_boot;/a flash_dtbo;' anykernel.sh
+          # Flashear DTBO solo si el archivo existe físicamente en el ZIP
+          if [ -f "dtbo.img" ]; then
+            sed -i '/flash_boot;/a flash_dtbo;' anykernel.sh
+          fi
 
           zip -r9 ../LolzKernel-4.9-KernelSU-Pine.zip * -x .git README.md *placeholder
 
