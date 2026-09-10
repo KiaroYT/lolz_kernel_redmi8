@@ -136,7 +136,7 @@ jobs:
 
           make -j$(nproc --all) O=out CC=clang CLANG_TRIPLE=aarch64-linux-gnu- KCFLAGS="-Wno-error -Wno-implicit-function-declaration -DCONFIG_KSU=1"
 
- - name: Empaquetar con AnyKernel3
+      - name: Empaquetar con AnyKernel3
         run: |
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
 
