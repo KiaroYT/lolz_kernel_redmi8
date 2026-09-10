@@ -136,13 +136,21 @@ jobs:
 
           make -j$(nproc --all) O=out CC=clang CLANG_TRIPLE=aarch64-linux-gnu- KCFLAGS="-Wno-error -Wno-implicit-function-declaration -DCONFIG_KSU=1"
 
-      - name: Empaquetar con AnyKernel3
+ - name: Empaquetar con AnyKernel3
         run: |
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
 
+          # Buscar la imagen del kernel compilado
           IMAGE=$(find out/arch/arm64/boot/ -name "Image.gz-dtb" -o -name "Image.gz" | head -n 1)
+
+          if [ -z "$IMAGE" ]; then
+            echo "ERROR: No se encontró la imagen del kernel en out/"
+            exit 1
+          fi
+
           cp "$IMAGE" AnyKernel3/
 
+          # Copiar dtbo solo si se generó
           DTBO=$(find out/arch/arm64/boot/ -name "dtbo.img" | head -n 1)
           if [ -n "$DTBO" ] && [ -f "$DTBO" ]; then
             cp "$DTBO" AnyKernel3/
@@ -150,24 +158,15 @@ jobs:
 
           cd AnyKernel3
 
-          # Desactivar chequeo estricto de dispositivo
+          # Desactivar verificación de dispositivo para evitar Error 7
           sed -i 's/do.devicecheck=1/do.devicecheck=0/' anykernel.sh
 
-          # Configurar dispositivos compatibles
+          # Asignar nombres de compatibilidad
           sed -i 's/device.name1=.*/device.name1=pine/' anykernel.sh
           sed -i 's/device.name2=.*/device.name2=redmi7a/' anykernel.sh
 
-          # Inyectar la ruta física directa del SOC (usando # para evitar colisión de separadores)
-          sed -i -E 's#^(BLOCK|block)=.*#\1=/dev/block/platform/soc/7824900.sdhci/by-name/boot;#g' anykernel.sh
-
-          # Desactivar re-montajes en Android 12
-          sed -i 's|mount -o rw /system|# mount -o rw /system|' anykernel.sh
-          sed -i 's|mount -o rw /vendor|# mount -o rw /vendor|' anykernel.sh
-
-          # Flashear DTBO solo si existe físicamente
-          if [ -f "dtbo.img" ]; then
-            sed -i '/flash_boot;/a flash_dtbo;' anykernel.sh
-          fi
+          # Asegurar autodetección de la partición boot
+          sed -i 's/block=.*/block=auto;/' anykernel.sh
 
           zip -r9 ../LolzKernel-4.9-KernelSU-Pine.zip * -x .git README.md *placeholder
 
