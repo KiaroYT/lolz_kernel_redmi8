@@ -40,17 +40,49 @@ jobs:
         run: |
           git clone --depth=1 https://github.com/kdrag0n/proton-clang.git $HOME/proton-clang
 
-      - name: Inyectar KernelSU v0.9.5 y Parches
+      - name: Inyectar KernelSU v0.9.5 y Puente de Símbolos
         run: |
           # 1. Inyectar KernelSU v0.9.5 oficial
           curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s v0.9.5
 
-          # 2. Parchear error de MACH_FAMILY_OLIVE en regulador de pantalla (si existe)
+          # 2. Crear puente de símbolos para solucionar errores de ld.lld (ksu_*_hook)
+          cat <<'EOF' > drivers/ksu_bridge.c
+          #include <linux/types.h>
+
+          int __attribute__((weak)) ksu_handle_execveat(int *fd, void *filename_ptr, void *argv, void *envp, int *flags) { return 0; }
+          int __attribute__((weak)) ksu_handle_vfs_read(void *file_ptr, void *buf_ptr, void *count_ptr, void *pos_ptr) { return 0; }
+          int __attribute__((weak)) ksu_handle_faccessat(int *dfd, void *filename_user, int *mode, int *flags) { return 0; }
+          int __attribute__((weak)) ksu_handle_stat(int *dfd, void *filename_user, int *flags) { return 0; }
+          int __attribute__((weak)) ksu_handle_input_handle_event(unsigned int *type, unsigned int *code, int *value) { return 0; }
+
+          int __attribute__((weak)) ksu_execveat_hook(int *fd, void *filename_ptr, void *argv, void *envp, int *flags) {
+              return ksu_handle_execveat(fd, filename_ptr, argv, envp, flags);
+          }
+          int __attribute__((weak)) ksu_vfs_read_hook(void *file_ptr, void *buf_ptr, void *count_ptr, void *pos_ptr) {
+              return ksu_handle_vfs_read(file_ptr, buf_ptr, count_ptr, pos_ptr);
+          }
+          int __attribute__((weak)) ksu_input_hook(unsigned int *type, unsigned int *code, int *value) {
+              return ksu_handle_input_handle_event(type, code, value);
+          }
+          int __attribute__((weak)) ksu_faccessat_hook(int *dfd, void *filename_user, int *mode, int *flags) {
+              return ksu_handle_faccessat(dfd, filename_user, mode, flags);
+          }
+          int __attribute__((weak)) ksu_stat_hook(int *dfd, void *filename_user, int *flags) {
+              return ksu_handle_stat(dfd, filename_user, flags);
+          }
+          EOF
+
+          # 3. Registrar ksu_bridge.o en el Makefile del directorio drivers
+          if ! grep -q "ksu_bridge.o" drivers/Makefile; then
+            echo "obj-y += ksu_bridge.o" >> drivers/Makefile
+          fi
+
+          # 4. Parchear error de MACH_FAMILY_OLIVE en regulador de pantalla (si existe)
           if [ -f "drivers/regulator/qpnp-lcdb-regulator.c" ]; then
             sed -i 's/if (mi439_mach_get_family() == MACH_FAMILY_OLIVE)/if (0)/g' drivers/regulator/qpnp-lcdb-regulator.c
           fi
 
-          # 3. Inyectar configuraciones requeridas en el defconfig de pine
+          # 5. Inyectar configuraciones requeridas en el defconfig de pine
           DEFCONFIG_FILE=$(find arch/arm64/configs -name "*pine*" -o -name "*lolz*" | head -n 1)
           if [ -z "$DEFCONFIG_FILE" ]; then
             DEFCONFIG_FILE="arch/arm64/configs/pine_defconfig"
@@ -76,7 +108,7 @@ jobs:
           mkdir -p out
           make O=out ARCH=arm64 CC=clang CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- "$DEFCONFIG_NAME"
 
-          # Asegurar flags activos en la configuración final de compilación
+          # Asegurar flags activos en la configuración final
           scripts/config --file out/.config --enable CONFIG_KSU
           scripts/config --file out/.config --enable CONFIG_KPROBES
           scripts/config --file out/.config --enable CONFIG_HAVE_KPROBES
